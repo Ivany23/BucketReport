@@ -1,0 +1,7 @@
+{
+  "_nota": "Meses ANTERIORES cujas lojas são as 'esperadas' (ex.: 12/34). Para Dezembro acrescente Novembro (WorkDay30/FReport30/CSV) e corra: npm run gerar-referencia",
+  "meses": [
+    { "chave": "2026-09", "pasta": "../Tangerine/WorkDay19/FReport19/CSV" },
+    { "chave": "2026-10", "pasta": "../Tangerine/WorkDay27/FReport27/CSV" }
+  ]
+}
