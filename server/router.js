@@ -29,7 +29,7 @@ async function servirTabela({ db, req, res, params, query }) {
     const j = JSON.parse(gunzipSync(p.gz).toString('utf8'));
     corpo = Buffer.from(paraCsv(j.colunas, j.linhas), 'utf8');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${params.tabela}_${query.get('mes')}_p${j.pagina}.csv"`);
+    res.setHeader('Content-Disposition', `inline; filename="${params.tabela}_${query.get('mes')}_p${j.pagina}.csv"`);
     if (aceitaGzip(req)) { corpo = gzipSync(corpo); res.setHeader('Content-Encoding', 'gzip'); }
   } else {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -177,7 +177,8 @@ export async function tratar(req, res) {
     const rota = url.searchParams.get('rota');
     const caminho = (rota !== null ? `/api/${rota}` : url.pathname).replace(/\/+$/, '') || '/';
     url.searchParams.delete('rota');
-    const metodo = req.method.toUpperCase();
+    // HEAD = GET sem corpo (o Power BI e outras ferramentas testam a ligação com HEAD)
+    const metodo = req.method.toUpperCase() === 'HEAD' ? 'GET' : req.method.toUpperCase();
     let achada = null, params = null, metodoErrado = false;
     for (const r of ROTAS) {
       const p = casar(r[1], caminho);
