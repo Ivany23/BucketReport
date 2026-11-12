@@ -15,10 +15,10 @@ const db = await ligarDaConfig();
 try {
   const admin = (await db.query(`SELECT * FROM utilizadores WHERE papel = 'admin' AND ativo ORDER BY criado_em LIMIT 1`)).rows[0];
   if (!admin) console.log('(ainda sem administrador: o carregamento fica sem autor)');
-  const { rep, nomes, ignorados } = lerPasta(pasta, { extra });
+  const { entradas, nomes, ignorados } = lerPasta(pasta, { extra });
   console.log('Relatórios:', Object.entries(nomes).map(([k, v]) => `${k}=${v}`).join(' | '));
   if (ignorados.length) console.log('Ignorados:', ignorados.join(' | '));
-  const r = await importar(db, admin, { rep, nomes, tipo: opt('--tipo') ?? 'mensal', publicarNo: !a.includes('--nao-publicar'), confirmar: a.includes('--confirmar') });
+  const r = await importar(db, admin, { entradas, nomes, tipo: opt('--tipo') ?? 'mensal', publicarNo: !a.includes('--nao-publicar'), confirmar: a.includes('--confirmar') });
   console.log(`OK: ${r.mes} — carregamento ${r.id} ${r.publicado ? 'PUBLICADO' : 'validado (não publicado)'}`);
   console.log(JSON.stringify(r.resumo.totais ?? { lojas: r.resumo.lojas }));
 } catch (e) {

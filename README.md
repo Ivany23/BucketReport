@@ -18,7 +18,31 @@ Como funciona por dentro: ver **[ARQUITECTURA.md](ARQUITECTURA.md)**.
 3. **Enviar e validar**: o servidor recebe tudo, refaz as contas e confirma que chegou aos mesmos números.
 4. **Publicar**: a nova versão substitui a anterior. Se desaparecerem visitas, a app pede confirmação.
 
-A versão anterior fica no **Histórico de carregamentos** e pode voltar a ser publicada.
+A versão anterior fica no **Histórico de carregamentos** e pode voltar a ser publicada. Cada mês guarda os dados
+completos da versão publicada e das 2 anteriores; as mais antigas ficam arquivadas (só o histórico).
+
+## API de dados (Power BI, Excel, outras ferramentas)
+
+Quem tiver uma **chave de API** pode ler as **tabelas completas** dos meses publicados (Setembro, Outubro, Novembro…),
+só leitura. São as 5 tabelas: `demographic_file`, `survey_visit_db`, `survey_feedback`, `product_availability_price`
+e `Visibility_Quality`. As colunas vêm **pela ordem dos relatórios originais** e os valores vêm como texto, exactamente
+como nos ficheiros. Isto está verificado por testes: as 15 tabelas (3 meses × 5) são iguais célula a célula aos CSV.
+
+- **Chaves**: menu ☰ → **API de dados**. A chave é mostrada uma só vez e pode ser revogada a qualquer momento.
+- **Power BI**: o mesmo ecrã tem o código pronto a colar (função `HeinekenTabela` + consulta que junta todos os meses).
+  Credencial: **API Web** (chave). Funciona também na actualização agendada do serviço Power BI.
+- **Rotas** (chave em `X-API-Key: <chave>`, `Authorization: Bearer <chave>` ou `?api_key=<chave>`):
+
+| Rota | Devolve |
+|---|---|
+| `GET /api/v1/meses` | meses publicados, tabelas, nº de linhas/páginas, colunas com a posição |
+| `GET /api/v1/tabelas/{tabela}?mes=AAAA-MM&pagina=N` | `{ colunas: [...], linhas: [[...]], pagina, paginas, linhas_total }` |
+| `…&formato=csv` | a mesma página em CSV (UTF-8, para o Excel) |
+
+As páginas têm até 10 000 linhas (e até ~2,5 MB). Leia as páginas 1 até `paginas`.
+
+> Atenção: uma chave dá acesso a todos os dados, incluindo nomes e contactos dos donos das lojas. Dê uma chave por
+> pessoa ou relatório e revogue as que já não forem precisas.
 
 ## Publicar o site (uma vez)
 
@@ -58,7 +82,7 @@ Os outros utilizadores (leitores) criam-se depois no site: menu ☰ → Utilizad
 
 - `Abrir_Mapa.bat`, ou `npm run dev` → <http://127.0.0.1:5173>. Usa o `.env`: `DATABASE_URL` (Neon), ou
   `PGLITE_DIR=dados_locais/pg` para uma base local numa pasta.
-- `npm test`: 25 testes com os relatórios reais (`HEINEKEN_DADOS=...` para outra pasta).
+- `npm test`: 29 testes com os relatórios reais (`HEINEKEN_DADOS=...` para outra pasta).
 
 ## Comandos
 

@@ -6,6 +6,7 @@ import Inicio from './components/Inicio.jsx';
 import Assistente from './components/Assistente.jsx';
 import Carregamentos from './components/Carregamentos.jsx';
 import Utilizadores from './components/Utilizadores.jsx';
+import ApiDados from './components/ApiDados.jsx';
 
 /** Rota actual a partir do # do endereço: #/ (início), #/carregar, #/carregamentos, #/utilizadores */
 function useRota() {
@@ -49,6 +50,7 @@ export default function App() {
   if (rota === '/carregar' && admin) return <Assistente base={base} menu={menu} />;
   if (rota === '/carregamentos' && admin) return <Carregamentos menu={menu} />;
   if (rota === '/utilizadores' && admin) return <Utilizadores user={user} menu={menu} />;
+  if (rota === '/api' && admin) return <ApiDados menu={menu} />;
   return <Inicio base={base} user={user} menu={menu} />;
 }
 
@@ -69,6 +71,7 @@ function Menu({ user, rota, onSair }) {
           {admin && item('/carregar', '⇪ Carregar dados')}
           {admin && item('/carregamentos', '🗂 Histórico de carregamentos')}
           {admin && item('/utilizadores', '👥 Utilizadores')}
+          {admin && item('/api', '🔑 API de dados (Power BI)')}
           <div className="menu-sep" />
           <div className="menu-quem">{user.nome}<small>{user.email} · {admin ? 'administrador' : 'leitor'}</small></div>
           <button type="button" onClick={onSair}>Sair</button>

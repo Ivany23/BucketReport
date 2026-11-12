@@ -43,20 +43,6 @@ export const PRATELEIRA = {
   sem_leitura: { label: 'Sem leitura', cor: '#c3c2b7' },
 };
 
-/** Cobertura da província (visitadas / esperadas) -> cor sequencial azul (5 classes) */
-export const COBERTURA = [
-  { min: 1, label: '100% ou mais', cor: '#256abf' },
-  { min: 0.75, label: '75–99%', cor: '#3987e5' },
-  { min: 0.5, label: '50–74%', cor: '#6da7ec' },
-  { min: 0.25, label: '25–49%', cor: '#9ec5f4' },
-  { min: 0, label: '0–24%', cor: '#cde2fb' },
-];
-export function corCobertura(visitadas, esperadas) {
-  if (!esperadas) return visitadas ? COBERTURA[0].cor : null;
-  const r = visitadas / esperadas;
-  return COBERTURA.find((c) => r >= c.min).cor;
-}
-
 /** Grupos de campos do demographic_file no painel da loja */
 export const CAMPOS_LOJA = [
   ['Identificação', ['Store No', 'S.E.M. ID', 'Store Name', 'Read ID', 'Date Modified']],

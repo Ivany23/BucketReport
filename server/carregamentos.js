@@ -13,7 +13,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buf } from './db.js';
 import { ErroHttp, sha256, registar } from './auth.js';
-import { REPORTS } from '../src/lib/reports.js';
+import { REPORTS, COLUNAS, detectReport } from '../src/lib/reports.js';
+import { TABELAS_API, nomeTabela, paraObjetos } from '../src/lib/envio.js';
 import { buildModel } from '../src/lib/model.js';
 import { makeLocator } from '../src/lib/provinces.js';
 import { lojasDoMesReferencia, lojasDoMesMensal, montarReferencia, juntarAuditores, mesDosRelatorios } from '../src/lib/referencia.js';
@@ -23,6 +24,9 @@ import { monthName } from '../src/lib/normalize.js';
 export const MAX_LINHAS_PARTE = 20000;
 const FATIA_PACOTE = 3 * 1024 * 1024;        // resposta da Vercel <= 4,5 MB
 export const VERSAO_PACOTE = 1;
+export const LINHAS_POR_PAGINA = 10000;      // página da API de dados: até 10 000 linhas...
+const BYTES_POR_PAGINA = 2_500_000;          // ...e até ~2,5 MB de JSON
+const VERSOES_COM_DADOS = 2;                 // por mês: publicada + 2 anteriores com dados completos (reversíveis)
 const TIPOS = Object.keys(REPORTS);
 
 let geo = null;
@@ -74,11 +78,22 @@ export async function criar(db, user, { mes, tipo = 'mensal', ficheiros }) {
     if (!Number.isInteger(f.linhas) || f.linhas < 0 || !Number.isInteger(f.partes) || f.partes < 1 || f.partes > 500) {
       throw new ErroHttp(400, `Linhas / partes inválidas em ${f.tipo}`);
     }
-    return { tipo: f.tipo, nome: String(f.nome ?? f.tipo).slice(0, 200), linhas: f.linhas, partes: f.partes };
+    const col = f.colunas;
+    if (!Array.isArray(col) || !col.length || col.length > 400 || col.some((c) => typeof c !== 'string' || !c.trim())
+        || new Set(col).size !== col.length) {
+      throw new ErroHttp(400, `Colunas inválidas em ${REPORTS[f.tipo].nome}`);
+    }
+    if (TABELAS_API.includes(f.tipo)) {
+      // as colunas declaradas têm de ser as de um ficheiro deste relatório (a mesma regra que reconheceu o ficheiro)
+      if (detectReport(col, '') !== f.tipo) throw new ErroHttp(400, `As colunas enviadas não são de um ${REPORTS[f.tipo].nome}`);
+    } else if (JSON.stringify(col) !== JSON.stringify(COLUNAS[f.tipo])) {
+      throw new ErroHttp(400, `Colunas inesperadas em ${REPORTS[f.tipo].nome}`);
+    }
+    return { tipo: f.tipo, nome: String(f.nome ?? f.tipo).slice(0, 2000), colunas: col, linhas: f.linhas, partes: f.partes };
   });
   for (const t of ['demographic', 'visitDb']) if (!vistos.has(t)) throw new ErroHttp(400, `Falta o relatório obrigatório ${REPORTS[t].nome}`);
-  // limpeza: rascunhos com mais de 1 dia
-  await db.query(`DELETE FROM carregamentos WHERE estado IN ('a_receber', 'falhado', 'cancelado') AND criado_em < now() - interval '1 day'`);
+  // limpeza: rascunhos e validações nunca publicadas com mais de 1 dia
+  await db.query(`DELETE FROM carregamentos WHERE estado IN ('a_receber', 'falhado', 'cancelado', 'validado') AND criado_em < now() - interval '1 day'`);
   const c = (await db.query(
     `INSERT INTO carregamentos (mes, tipo, criado_por, ficheiros) VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
     [mes, tipo, user?.id ?? null, JSON.stringify(lista)])).rows[0];
@@ -95,6 +110,12 @@ export async function receberParte(db, user, id, { relatorio, parte, total_parte
   if (total !== f.partes || !Number.isInteger(parte) || parte < 0 || parte >= total) throw new ErroHttp(400, `Parte inválida ${parte}/${total} (${relatorio})`);
   if (!Array.isArray(dados) || dados.length !== linhas) throw new ErroHttp(400, `Nº de linhas não confere (${relatorio} parte ${parte})`);
   if (linhas > MAX_LINHAS_PARTE) throw new ErroHttp(400, 'Parte demasiado grande');
+  const nc = f.colunas.length;
+  for (const l of dados) {
+    if (!Array.isArray(l) || l.length !== nc || l.some((v) => typeof v !== 'string')) {
+      throw new ErroHttp(400, `Linha com formato errado em ${REPORTS[relatorio].nome} (parte ${parte}): esperadas ${nc} colunas de texto`);
+    }
+  }
   const texto = JSON.stringify(dados);
   if (sha256(texto) !== hash) throw new ErroHttp(400, `Parte corrompida no envio (${relatorio} parte ${parte}): sha256 diferente`);
   const ins = await db.query(
@@ -113,6 +134,7 @@ async function juntarPartes(db, c) {
     'SELECT relatorio, parte, total_partes, linhas, sha256, dados_gz FROM carregamento_partes WHERE carregamento_id = $1 ORDER BY relatorio, parte', [c.id])).rows;
   const erros = [];
   const rep = {};
+  const tabelas = {};
   for (const f of c.ficheiros) {
     const ps = rows.filter((r) => r.relatorio === f.tipo);
     const faltam = [];
@@ -127,9 +149,41 @@ async function juntarPartes(db, c) {
       for (const x of d) linhas.push(x);
     }
     if (linhas.length !== f.linhas) erros.push(`${REPORTS[f.tipo].nome}: chegaram ${linhas.length} linhas, esperadas ${f.linhas}`);
-    rep[f.tipo] = linhas;
+    rep[f.tipo] = paraObjetos(f.colunas, linhas);
+    if (TABELAS_API.includes(f.tipo)) tabelas[f.tipo] = { colunas: f.colunas, linhas };
   }
-  return { rep, erros };
+  return { rep, tabelas, erros };
+}
+
+/** Páginas da API de dados: o corpo JSON de cada resposta, já comprimido */
+function paginarTabela(tipo, mes, { colunas, linhas }) {
+  const relatorio = nomeTabela(tipo);
+  // páginas de até 10 000 linhas E até ~2,5 MB sem compressão (a Vercel aceita respostas até 4,5 MB,
+  // e um cliente que não aceite gzip recebe a página sem compressão)
+  const fatias = [];
+  let atual = [], tam = 0;
+  for (const l of linhas) {
+    const t = JSON.stringify(l).length + 1;
+    if (atual.length && (atual.length >= LINHAS_POR_PAGINA || tam + t > BYTES_POR_PAGINA)) { fatias.push(atual); atual = []; tam = 0; }
+    atual.push(l); tam += t;
+  }
+  fatias.push(atual);
+  const paginas = fatias.length;
+  const out = fatias.map((fatia, i) => {
+    const corpo = { tabela: relatorio, mes, pagina: i + 1, paginas, linhas_total: linhas.length, linhas_pagina: fatia.length, colunas, linhas: fatia };
+    return { pagina: i + 1, linhas: fatia.length, gz: gzipSync(JSON.stringify(corpo), { level: 9 }) };
+  });
+  return { relatorio, colunas, total: linhas.length, paginas, out };
+}
+
+/** Linhas para o pacote do painel: só as colunas que o painel usa (o resto fica na API de dados) */
+function paraPacote(rep) {
+  const o = {};
+  for (const [k, rows] of Object.entries(rep)) {
+    const cols = COLUNAS[k];
+    o[k] = cols ? rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? '']))) : rows;
+  }
+  return o;
 }
 
 /** Processa os relatórios de um mês (sem base de dados): modelo, lojas, resumo e pacote */
@@ -153,7 +207,7 @@ export function processar({ rep, mes, tipo, referencia, auditores }) {
     referencia: referencia.meses,
     auditoresNovos: auds.filter((a) => !auditores.some((b) => b.nome === a.nome)),
   };
-  const pacote = { versao: VERSAO_PACOTE, mes, rep, referencia, auditores: auds };
+  const pacote = { versao: VERSAO_PACOTE, mes, rep: paraPacote(rep), referencia, auditores: auds };
   return { lojas, resumo, pacote, assinatura: JSON.stringify(resumoParaAssinatura(m)), visitas: idsVisitas(m) };
 }
 
@@ -161,7 +215,7 @@ export function processar({ rep, mes, tipo, referencia, auditores }) {
 export async function validar(db, user, id, { assinatura } = {}) {
   const c = await obter(db, id);
   if (c.estado !== 'a_receber') throw new ErroHttp(409, `Não é possível validar: estado ${c.estado}`);
-  const { rep, erros } = await juntarPartes(db, c);
+  const { rep, tabelas, erros } = await juntarPartes(db, c);
   if (erros.length) {
     await falhar(db, id, erros);
     throw new ErroHttp(422, 'Os dados não chegaram completos', { erros });
@@ -211,6 +265,15 @@ export async function validar(db, user, id, { assinatura } = {}) {
     for (let i = 0; i < fatias.length; i++) {
       await t.query('INSERT INTO carregamento_pacote (carregamento_id, parte, dados) VALUES ($1, $2, $3)', [id, i, fatias[i]]);
     }
+    for (const [tipo, tab] of Object.entries(tabelas)) {
+      const pg = paginarTabela(tipo, c.mes, tab);
+      await t.query('INSERT INTO carregamento_tabelas (carregamento_id, relatorio, colunas, linhas, paginas) VALUES ($1, $2, $3::jsonb, $4, $5)',
+        [id, pg.relatorio, JSON.stringify(pg.colunas), pg.total, pg.paginas]);
+      for (const p of pg.out) {
+        await t.query('INSERT INTO carregamento_tabela_paginas (carregamento_id, relatorio, pagina, linhas, dados_gz) VALUES ($1, $2, $3, $4, $5)',
+          [id, pg.relatorio, p.pagina, p.linhas, p.gz]);
+      }
+    }
     for (let i = 0; i < r.lojas.length; i += 1000) {
       const lote = r.lojas.slice(i, i + 1000).map((l) => ({ s: l.store_id, e: l.estado ?? '', p: Boolean(l.soPap), d: l.demo }));
       await t.query(
@@ -238,6 +301,9 @@ export async function publicar(db, user, id, { confirmar = false } = {}) {
     await t.query('INSERT INTO meses (mes) VALUES ($1) ON CONFLICT (mes) DO NOTHING', [c.mes]);
     const mesRow = (await t.query('SELECT carregamento_publicado FROM meses WHERE mes = $1 FOR UPDATE', [c.mes])).rows[0];
     const atual = mesRow.carregamento_publicado;
+    if (c.estado === 'substituido' && c.dados_arquivados) {
+      throw new ErroHttp(409, 'Esta versão está arquivada (os dados completos já foram apagados); não é possível voltar a ela.');
+    }
     if (c.estado === 'substituido' && !confirmar) {
       throw new ErroHttp(409, 'Voltar a uma versão anterior: confirme a operação', { precisaConfirmar: 'reverter' });
     }
@@ -257,7 +323,16 @@ export async function publicar(db, user, id, { confirmar = false } = {}) {
     for (const a of c.resumo?.auditoresNovos ?? []) {
       await t.query(`INSERT INTO auditores (nome, iniciais) VALUES ($1, $2) ON CONFLICT (nome) DO NOTHING`, [a.nome, a.iniciais]);
     }
-    return { mes: c.mes, anterior: atual };
+    // espaço na base: só a publicada + as VERSOES_COM_DADOS substituídas mais recentes guardam os dados completos
+    const velhas = (await t.query(
+      `SELECT id FROM carregamentos WHERE mes = $1 AND estado = 'substituido' AND NOT dados_arquivados
+        ORDER BY publicado_em DESC OFFSET $2`, [c.mes, VERSOES_COM_DADOS])).rows.map((r) => r.id);
+    for (const v of velhas) await apagarDados(t, v, true);
+    // outras versões validadas deste mês ficaram obsoletas (foram comparadas com outra versão publicada): canceladas
+    const obsoletas = (await t.query(
+      `UPDATE carregamentos SET estado = 'cancelado' WHERE mes = $1 AND estado = 'validado' AND id <> $2 RETURNING id`, [c.mes, id])).rows.map((r) => r.id);
+    for (const v of obsoletas) await apagarDados(t, v, false);
+    return { mes: c.mes, anterior: atual, arquivadas: velhas.length, canceladas: obsoletas.length };
   });
   await registar(db, user?.id ?? null, 'publicar_carregamento', { id, ...res });
   return { ok: true, ...res };
@@ -269,15 +344,59 @@ export async function cancelar(db, user, id) {
   if (!['a_receber', 'validado', 'falhado'].includes(c.estado)) throw new ErroHttp(409, `Não é possível cancelar (estado: ${c.estado})`);
   await db.transacao(async (t) => {
     await t.query(`UPDATE carregamentos SET estado = 'cancelado' WHERE id = $1`, [id]);
-    await t.query('DELETE FROM carregamento_partes WHERE carregamento_id = $1', [id]);
-    await t.query('DELETE FROM carregamento_pacote WHERE carregamento_id = $1', [id]);
-    await t.query('DELETE FROM carregamento_lojas WHERE carregamento_id = $1', [id]);
+    await apagarDados(t, id, false);
   });
   await registar(db, user?.id ?? null, 'cancelar_carregamento', { id });
   return { ok: true };
 }
 
-const CAMPOS_LISTA = `c.id, c.mes, c.tipo, c.estado, c.criado_em, c.validado_em, c.publicado_em, c.ficheiros, c.erros,
+/** Apaga os dados pesados de um carregamento (partes, pacote, lojas, tabelas). arquivar = marca-o como arquivado. */
+async function apagarDados(t, id, arquivar) {
+  await t.query('DELETE FROM carregamento_partes WHERE carregamento_id = $1', [id]);
+  await t.query('DELETE FROM carregamento_pacote WHERE carregamento_id = $1', [id]);
+  await t.query('DELETE FROM carregamento_lojas WHERE carregamento_id = $1', [id]);
+  await t.query('DELETE FROM carregamento_tabelas WHERE carregamento_id = $1', [id]);   // as páginas vão em cascata
+  if (arquivar) await t.query('UPDATE carregamentos SET dados_arquivados = true WHERE id = $1', [id]);
+}
+
+// ---------------------------------------------------------------- API de dados (chave de API)
+/** Meses publicados com as tabelas disponíveis e as colunas pela ordem original */
+export async function catalogoDados(db) {
+  const r = await db.query(
+    `SELECT c.id, c.mes, c.tipo, c.publicado_em, t.relatorio, t.colunas, t.linhas, t.paginas
+       FROM carregamentos c JOIN carregamento_tabelas t ON t.carregamento_id = c.id
+      WHERE c.estado = 'publicado' ORDER BY c.mes, t.relatorio`);
+  const meses = new Map();
+  for (const x of r.rows) {
+    const mes = x.mes.trim();
+    if (!meses.has(mes)) meses.set(mes, { mes, nome: monthName(mes), versao: x.id, publicado_em: x.publicado_em, tabelas: [] });
+    meses.get(mes).tabelas.push({
+      tabela: x.relatorio, linhas: x.linhas, paginas: x.paginas,
+      colunas: x.colunas.map((nome, i) => ({ posicao: i + 1, nome })),
+    });
+  }
+  return [...meses.values()];
+}
+
+/** Uma página (corpo JSON comprimido) de uma tabela do mês publicado */
+export async function paginaTabela(db, tabela, mes, pagina) {
+  if (!Object.values(REPORTS).some((r) => r.nome === tabela) || !TABELAS_API.some((t) => nomeTabela(t) === tabela)) {
+    throw new ErroHttp(404, `Tabela inexistente: ${tabela}. Tabelas: ${TABELAS_API.map(nomeTabela).join(', ')}`);
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(mes))) throw new ErroHttp(400, 'Indique o mês: mes=AAAA-MM (ex.: mes=2026-11)');
+  const p = pagina === null || pagina === undefined || pagina === '' ? 1 : Number(pagina);
+  if (!Number.isInteger(p) || p < 1) throw new ErroHttp(400, 'pagina tem de ser um número inteiro >= 1');
+  const t = (await db.query(
+    `SELECT c.id, c.publicado_em, t.paginas FROM carregamentos c JOIN carregamento_tabelas t ON t.carregamento_id = c.id
+      WHERE c.mes = $1 AND c.estado = 'publicado' AND t.relatorio = $2`, [mes, tabela])).rows[0];
+  if (!t) throw new ErroHttp(404, `Sem dados publicados de ${tabela} para ${mes}`);
+  if (p > t.paginas) throw new ErroHttp(404, `A tabela tem ${t.paginas} página(s)`);
+  const r = (await db.query('SELECT dados_gz FROM carregamento_tabela_paginas WHERE carregamento_id = $1 AND relatorio = $2 AND pagina = $3',
+    [t.id, tabela, p])).rows[0];
+  return { gz: buf(r.dados_gz), versao: t.id, paginas: t.paginas, publicado_em: t.publicado_em };
+}
+
+const CAMPOS_LISTA = `c.id, c.mes, c.tipo, c.estado, c.criado_em, c.validado_em, c.publicado_em, c.ficheiros, c.erros, c.dados_arquivados,
   c.pacote_bytes, c.pacote_partes, c.pacote_sha256, c.resumo - 'visitas' AS resumo,
   uc.nome AS criado_por_nome, up.nome AS publicado_por_nome`;
 

@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import Carregar from './Carregar.jsx';
 import Painel from './Painel.jsx';
 import { api, comRepeticao, sha256Hex } from '../lib/api.js';
-import { REPORTS, prepararLinhas } from '../lib/reports.js';
-import { dividirEmPartes } from '../lib/envio.js';
+import { REPORTS } from '../lib/reports.js';
+import { prepararEnvio } from '../lib/envio.js';
 import { buildModel } from '../lib/model.js';
 import { mesDosRelatorios, juntarAuditores } from '../lib/referencia.js';
 import { assinaturaDe } from '../lib/assinatura.js';
@@ -40,16 +40,18 @@ export default function Assistente({ base, menu }) {
     return () => window.removeEventListener('beforeunload', f);
   }, [passo]);
 
-  async function verificar(rep, nomes) {
+  async function verificar(entradas, nomes) {
     setErro(''); setOcupado('A verificar os relatórios…');
     try {
-      const prep = Object.fromEntries(Object.entries(rep).map(([k, rows]) => [k, prepararLinhas(k, rows)]));
+      // o mesmo formato que vai para o servidor: o modelo local é feito exactamente com os dados enviados
+      const env = prepararEnvio(entradas, nomes);
+      const prep = env.objetos;
       const mes = mesDosRelatorios(prep.visitDb);
       const [ref, meses] = await Promise.all([api('GET', `/api/referencia?mes=${mes}`), api('GET', '/api/meses')]);
       const m = buildModel(prep, ref.referencia, base.locate, juntarAuditores(ref.auditores, prep.beatroute));
       const assinatura = await assinaturaDe(m);
       const publicado = meses.meses.find((x) => x.mes === mes && x.tipo === 'mensal') ?? null;
-      setDados({ prep, nomes, mes, m, assinatura, publicado });
+      setDados({ env, prep, nomes, mes, m, assinatura, publicado });
       setPasso(1);
     } catch (e) {
       setErro(e.message);
@@ -60,15 +62,12 @@ export default function Assistente({ base, menu }) {
 
   async function enviar() {
     setErro(''); setConfirmar(false);
-    const { prep, nomes, mes, assinatura } = dados;
+    const { env, mes, assinatura } = dados;
     try {
       setOcupado('A preparar o envio…');
-      const partes = Object.fromEntries(Object.entries(prep).map(([k, rows]) => [k, dividirEmPartes(rows)]));
+      const { partes } = env;
       const total = Object.values(partes).reduce((a, p) => a + p.length, 0);
-      const c = await api('POST', '/api/carregamentos', {
-        mes, tipo: 'mensal',
-        ficheiros: Object.entries(prep).map(([k, rows]) => ({ tipo: k, nome: nomes[k] ?? k, linhas: rows.length, partes: partes[k].length })),
-      });
+      const c = await api('POST', '/api/carregamentos', { mes, tipo: 'mensal', ficheiros: env.ficheiros });
       setPasso(2);
       let feito = 0;
       setEnvio({ feito, total });

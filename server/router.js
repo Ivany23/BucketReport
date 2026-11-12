@@ -1,9 +1,43 @@
 // API do Mapa de Lojas. Uma só função na Vercel (api/index.js) encaminha todas as rotas para aqui;
 // o servidor local (server/dev.mjs) usa o mesmo código.
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { getDb } from './db.js';
 import { ErroHttp, COOKIE, SESSAO_HORAS, entrar, sair, sessao, criarUtilizador, alterarUtilizador, publico } from './auth.js';
 import * as C from './carregamentos.js';
+import { criarChave, listarChaves, revogarChave, autenticarChave } from './chaves.js';
+import { TABELAS_API, nomeTabela } from '../src/lib/envio.js';
+
+/** CSV (RFC 4180, separador vírgula, UTF-8 com BOM para o Excel) a partir de { colunas, linhas } */
+function paraCsv(colunas, linhas) {
+  const esc = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  return '﻿' + [colunas, ...linhas].map((l) => l.map(esc).join(',')).join('\r\n') + '\r\n';
+}
+
+const aceitaGzip = (req) => /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+
+/** Página de uma tabela da API de dados (JSON já comprimido na base de dados, ou CSV) */
+async function servirTabela({ db, req, res, params, query }) {
+  const formato = (query.get('formato') ?? 'json').toLowerCase();
+  if (!['json', 'csv'].includes(formato)) throw new ErroHttp(400, 'formato tem de ser json ou csv');
+  const p = await C.paginaTabela(db, params.tabela, query.get('mes'), query.get('pagina'));
+  res.statusCode = 200;
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Versao', p.versao);
+  res.setHeader('X-Paginas', String(p.paginas));
+  let corpo;
+  if (formato === 'csv') {
+    const j = JSON.parse(gunzipSync(p.gz).toString('utf8'));
+    corpo = Buffer.from(paraCsv(j.colunas, j.linhas), 'utf8');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${params.tabela}_${query.get('mes')}_p${j.pagina}.csv"`);
+    if (aceitaGzip(req)) { corpo = gzipSync(corpo); res.setHeader('Content-Encoding', 'gzip'); }
+  } else {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (aceitaGzip(req)) { corpo = p.gz; res.setHeader('Content-Encoding', 'gzip'); } else corpo = gunzipSync(p.gz);
+  }
+  res.setHeader('Vary', 'Accept-Encoding');
+  res.end(corpo);
+}
 
 const LIMITE_CORPO = 4 * 1024 * 1024;
 
@@ -97,6 +131,26 @@ const ROTAS = [
   ['POST', '/api/carregamentos/:id/publicar', 'admin', async ({ db, user, params, corpo }) => C.publicar(db, user, params.id, corpo)],
   ['POST', '/api/carregamentos/:id/cancelar', 'admin', async ({ db, user, params }) => C.cancelar(db, user, params.id)],
 
+  // ---- API de dados (Power BI, Excel, ...): autenticação por chave de API, só leitura, só versões publicadas
+  ['GET', '/api/v1', 'chave', async () => ({
+    api: 'Mapa de Lojas — dados dos relatórios', versao: 1,
+    autenticacao: 'cabeçalho "X-API-Key: <chave>" ou "Authorization: Bearer <chave>" ou parâmetro ?api_key=<chave>',
+    tabelas: TABELAS_API.map(nomeTabela),
+    rotas: {
+      meses: '/api/v1/meses — meses publicados, tabelas, nº de linhas e de páginas, colunas pela ordem original',
+      tabela: '/api/v1/tabelas/{tabela}?mes=AAAA-MM&pagina=1[&formato=csv] — 10 000 linhas por página',
+    },
+    formato_json: '{ tabela, mes, pagina, paginas, linhas_total, linhas_pagina, colunas: [...], linhas: [[...], ...] } — cada linha tem os valores pela ordem de "colunas"; todos os valores são texto',
+  })],
+  ['GET', '/api/v1/meses', 'chave', async ({ db }) => ({ meses: await C.catalogoDados(db) })],
+  ['GET', '/api/v1/tabelas/:tabela', 'chave', async (ctx) => { await servirTabela(ctx); return undefined; }],
+
+  // ---- gestão das chaves (administrador, com sessão)
+  ['GET', '/api/chaves', 'admin', async ({ db }) => ({ chaves: await listarChaves(db) })],
+  ['POST', '/api/chaves', 'admin', async ({ db, user, corpo }) => ({ chave: await criarChave(db, user, corpo.nome) })],
+  ['POST', '/api/chaves/:id/revogar', 'admin', async ({ db, user, params }) => revogarChave(db, user, params.id)],
+  ['GET', '/api/dados/catalogo', 'admin', async ({ db }) => ({ meses: await C.catalogoDados(db), tabelas: TABELAS_API.map(nomeTabela) })],
+
   ['GET', '/api/utilizadores', 'admin', async ({ db }) => ({
     utilizadores: (await db.query('SELECT * FROM utilizadores ORDER BY nome')).rows.map(publico),
   })],
@@ -136,7 +190,9 @@ export async function tratar(req, res) {
     if (metodo !== 'GET' && req.headers['x-requested-with'] !== 'mapa-lojas') throw new ErroHttp(403, 'Pedido recusado');
     const db = await getDb();
     let user = null;
-    if (achada[2] !== 'publico') {
+    if (achada[2] === 'chave') {
+      user = await autenticarChave(db, req, url.searchParams);
+    } else if (achada[2] !== 'publico') {
       user = await sessao(db, cookies(req)[COOKIE]);
       if (!user) throw new ErroHttp(401, 'Sessão terminada. Entre de novo.');
       if (achada[2] === 'admin' && user.papel !== 'admin') throw new ErroHttp(403, 'Só administradores');

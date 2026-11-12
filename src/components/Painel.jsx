@@ -1,10 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import Mapa from './Mapa.jsx';
 import FichaLoja from './FichaLoja.jsx';
-import { ESTADOS, ORDEM_ESTADOS, corCobertura } from '../lib/labels.js';
+import { ESTADOS, ORDEM_ESTADOS } from '../lib/labels.js';
 import { fold, fmtDate, monthShort } from '../lib/normalize.js';
 
-const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 const n = (x) => x.toLocaleString('pt-PT');
 
 function boundsDe(lojas) {
@@ -130,7 +129,7 @@ export default function Painel({ base, m, barra, aviso }) {
             <div className="kpi-rotulo">Lojas visitadas</div>
             <div className="kpi-valor">{n(t.visitadas)}<small> / {n(t.esperadas)}</small></div>
             <Barra valor={t.visitadasDasEsperadas} total={t.esperadas} />
-            <div className="kpi-nota">{pct(t.visitadasDasEsperadas, t.esperadas)}% das lojas de {refTxt}{t.novas ? ` · +${n(t.novas)} novas` : ''}</div>
+            <div className="kpi-nota">visitadas este mês / lojas de {refTxt}{t.novas ? ` · +${n(t.novas)} novas` : ''}</div>
           </div>
           {ORDEM_ESTADOS.map((k) => (
             <button key={k} type="button" className={`kpi kpi-estado ${estados.has(k) ? '' : 'desligado'}`}
@@ -180,10 +179,10 @@ export default function Painel({ base, m, barra, aviso }) {
                     </div>
                     {(p.esperadas > 0 || p.visitadas > 0) && (
                       <>
-                        <Barra valor={p.visitadas} total={p.esperadas} cor={corCobertura(p.visitadas, p.esperadas)} />
+                        <Barra valor={p.visitadas} total={p.esperadas} />
                         <div className="linha-baixo">
                           <Contagens c={p.porEstado} />
-                          <span className="pct">{pct(p.visitadas, p.esperadas)}%{p.novas ? ` · +${p.novas} novas` : ''}</span>
+                          {p.novas > 0 && <span className="pct">+{p.novas} novas</span>}
                         </div>
                       </>
                     )}

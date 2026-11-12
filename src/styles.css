@@ -209,7 +209,7 @@ small { font-size: .82em; }
 .vazio { color: var(--tinta-3); font-size: 13.5px; text-align: center; padding: 24px 8px; }
 .prod-resumo { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--tinta-2); margin-bottom: 8px; }
 .tabela { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.tabela th { text-align: left; font-size: 11px; color: var(--tinta-3); text-transform: uppercase; letter-spacing: .03em; padding: 6px 4px; border-bottom: 1px solid var(--linha); position: sticky; top: -12px; background: #fff; }
+.tabela th { text-align: left; font-size: 11px; color: var(--tinta-3); text-transform: uppercase; letter-spacing: .03em; padding: 6px 4px; border-bottom: 1px solid var(--linha); background: #fff; }
 .tabela td { padding: 7px 4px; border-bottom: 1px solid #f0efea; vertical-align: top; }
 .tabela td small { display: block; color: var(--tinta-3); }
 .tabela .dir { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -326,3 +326,21 @@ tr.inativo td { color: var(--tinta-3); }
   .tabela-hist { display: block; overflow-x: auto; }
   .topo-simples { flex-wrap: wrap; }
 }
+.legenda-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--linha); font-size: 12px; color: var(--tinta-2); }
+
+/* ---------- API de dados ---------- */
+.codigo { position: relative; margin: 6px 0 12px; }
+.codigo pre { background: #0f1720; color: #e6edf3; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; margin: 0; white-space: pre; }
+.codigo-barra { position: absolute; top: 8px; right: 8px; }
+.codigo-barra .btn { background: #22303f; color: #e6edf3; border-color: #33465a; }
+.chave-nova { margin: 12px 0; display: grid; gap: 8px; }
+.chave-linha { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chave-linha code { background: #fff; border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; font-size: 13px; word-break: break-all; }
+.cat-mes h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.cat-tabela { border: 1px solid var(--linha); border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; }
+.cat-tabela summary { cursor: pointer; font-size: 13.5px; }
+.colunas { columns: 3 220px; font-size: 12.5px; margin: 8px 0 0; padding-left: 28px; }
+.colunas li { break-inside: avoid; padding: 1px 0; }
+.passos-pbi { margin-bottom: 8px; }
+.tabela td small { display: block; color: var(--tinta-3); }
+.ficha .tabela th { position: sticky; top: -12px; }   /* cabeçalho fixo só na tabela de produtos da ficha */

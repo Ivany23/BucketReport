@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, GeoJSON, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { labelPoint } from '../lib/provinces.js';
-import { ESTADOS, ORDEM_ESTADOS, corCobertura, COBERTURA } from '../lib/labels.js';
+import { ESTADOS, ORDEM_ESTADOS } from '../lib/labels.js';
 
 const MZ_BOUNDS = [[-26.9, 30.2], [-10.4, 40.9]];
 // etiquetas que se sobrepunham no centróide: posição ajustada à mão (dentro da própria província)
@@ -110,13 +110,15 @@ function VigiarZoom({ onPerto }) {
 export default function Mapa({ geo, provincias, lojas, selecionada, onSelect, provSel, onProvincia, alvo, contagens }) {
   const [perto, setPerto] = useState(false);
   const porNome = useMemo(() => Object.fromEntries(provincias.map((p) => [p.nome, p])), [provincias]);
+  // províncias: contorno + preenchimento leve (sem escala de percentagens); sem lojas = tracejado cinzento
   const estilo = (f) => {
     const p = porNome[f.properties.nome];
-    const cor = corCobertura(p.visitadas, p.esperadas);
+    const temLojas = p.esperadas > 0 || p.visitadas > 0;
     const sel = provSel === f.properties.nome;
     return {
       color: sel ? '#0d366b' : '#1c5cab', weight: sel ? 3 : 1.2, opacity: 0.9,
-      fillColor: cor ?? '#e1e0d9', fillOpacity: perto ? 0.04 : cor ? 0.35 : 0.15, dashArray: cor ? null : '4 4',
+      fillColor: temLojas ? '#9ec5f4' : '#e1e0d9', fillOpacity: perto ? 0.04 : sel ? 0.4 : temLojas ? 0.22 : 0.15,
+      dashArray: temLojas ? null : '4 4',
     };
   };
   return (
@@ -149,12 +151,7 @@ export default function Mapa({ geo, provincias, lojas, selecionada, onSelect, pr
             {ESTADOS[k].label} <span className="legenda-n">{contagens[k].toLocaleString('pt-PT')}</span>
           </div>
         ))}
-        <div className="legenda-titulo">Província: visitadas / esperadas</div>
-        <div className="legenda-escala">
-          {[...COBERTURA].reverse().map((c) => (
-            <div key={c.label} title={c.label}><span style={{ background: c.cor }} />{c.label}</div>
-          ))}
-        </div>
+        <div className="legenda-nota">Nas províncias: <b>visitadas / esperadas</b></div>
       </div>
     </div>
   );

@@ -59,11 +59,11 @@ export default function Carregar({ onPronto }) {
           const atual = next[r.tipo] ?? { name: '', nomes: [], rows: [] };
           if (!atual.nomes.includes(r.name)) {
             const nomes = [...atual.nomes, r.name];
-            next[r.tipo] = { name: `${nomes.length} ficheiro(s)`, nomes, rows: [...atual.rows, ...r.rows] };
+            next[r.tipo] = { name: `${nomes.length} ficheiro(s)`, nomes, colunas: r.columns, rows: [...atual.rows, ...r.rows] };
           }
         } else if (next[r.tipo] && next[r.tipo].name !== r.name) {
           novosIgn.push({ name: r.name, motivo: `${REPORTS[r.tipo].nome} já carregado (${next[r.tipo].name})` });
-        } else next[r.tipo] = { name: r.name, rows: r.rows };
+        } else next[r.tipo] = { name: r.name, colunas: r.columns, rows: r.rows };
       }
       return next;
     });
@@ -72,9 +72,10 @@ export default function Carregar({ onPronto }) {
 
   function abrir() {
     try {
-      const rep = Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v.rows]));
+      // colunas = cabeçalho do ficheiro, pela ordem original (é a ordem que a API de dados devolve)
+      const entradas = Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, { colunas: v.colunas, rows: v.rows }]));
       const nomes = Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v.nomes ? v.nomes.join(', ') : v.name]));
-      onPronto(rep, nomes);
+      onPronto(entradas, nomes);
     } catch (e) {
       setErro(e.message);
     }

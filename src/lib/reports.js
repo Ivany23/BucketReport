@@ -111,7 +111,10 @@ export async function readReportFile(file) {
   let parsed;
   if (ext === 'csv') {
     const text = new TextDecoder('utf-8').decode(await file.arrayBuffer());
-    if (eBruto(text)) return { name, tipo: 'beatroute', rows: parseBruto(text), erro: null };
+    if (eBruto(text)) {
+      const rows = parseBruto(text);
+      return { name, tipo: 'beatroute', columns: Object.keys(rows[0] ?? {}), rows, erro: null };
+    }
     parsed = parseCsvText(text);
   } else if (ext === 'xlsx' || ext === 'xls') {
     parsed = parseWorkbook(new Uint8Array(await file.arrayBuffer()));
@@ -119,5 +122,5 @@ export async function readReportFile(file) {
     return { name, tipo: null, erro: 'formato não suportado (use CSV ou XLSX)' };
   }
   const tipo = detectReport(parsed.columns, name);
-  return { name, tipo, rows: parsed.rows, erro: tipo ? null : 'não é um dos relatórios conhecidos' };
+  return { name, tipo, columns: parsed.columns, rows: parsed.rows, erro: tipo ? null : 'não é um dos relatórios conhecidos' };
 }

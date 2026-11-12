@@ -67,6 +67,20 @@ passa a contar automaticamente para Dezembro. A referência usada fica congelada
 | `meses` | uma linha por mês (trava a publicação) |
 | `auditores` | nome + iniciais (lista inicial em `db/seed/auditores.json`; actualizada com os ficheiros brutos do BeatRoute) |
 | `registo` | auditoria de todas as acções |
+| `carregamento_tabelas` | (002) as 5 tabelas completas de cada versão: colunas pela ordem original, nº de linhas e páginas |
+| `carregamento_tabela_paginas` | (002) páginas da API de dados: corpo JSON já comprimido (até 10 000 linhas / ~2,5 MB) |
+| `api_chaves` | (002) chaves da API de dados: nome, prefixo, sha256 (a chave nunca é guardada), revogação, uso |
+
+## API de dados (`/api/v1`)
+
+- Autenticação por chave de API (`X-API-Key`, `Authorization: Bearer` ou `?api_key=`, que é o modo do Power BI).
+  Só GET e só versões publicadas.
+- O carregamento envia as 5 tabelas **completas** como `{ colunas, linhas: [[texto…]] }`. A ordem das colunas é
+  a do cabeçalho do ficheiro e o servidor confirma que as colunas são desse relatório. Ao validar, o servidor grava
+  as páginas já prontas (gzip). A API devolve-as sem as recalcular.
+- O painel continua a usar o pacote leve (só as colunas de que o mapa precisa).
+- Espaço: por mês ficam com dados completos a versão publicada e as 2 anteriores. Ao publicar, as mais antigas são
+  arquivadas (`dados_arquivados`) e as validações obsoletas são canceladas.
 
 ## Segurança
 
@@ -76,7 +90,7 @@ passa a contar automaticamente para Dezembro. A referência usada fica congelada
 - `public/` só tem o mapa das províncias. Os dados das lojas nunca são ficheiros públicos.
 - `.env` (DATABASE_URL) nunca vai para o git nem para a Vercel; na Vercel define-se no painel do projecto.
 
-## Testes (`npm test`, 25 testes)
+## Testes (`npm test`, 29 testes)
 
 - `tests/unidades.test.mjs`: datas, IDs, províncias, reconhecimento dos relatórios.
 - `tests/dados_novembro.test.mjs`: relatórios reais. CSV = XLSX, nada se perde, estados, totais, auditores comparados
@@ -84,4 +98,4 @@ passa a contar automaticamente para Dezembro. A referência usada fica congelada
 - `tests/servidor.test.mjs`: PostgreSQL real (PGlite) e API HTTP real. Referência Set/Out = ficheiro verificado;
   login, permissões e CSRF; Novembro pela API com pacote igual ao modelo local; partes em falta, corrompidas e repetidas;
   assinatura diferente; mês errado; nova versão; visitas removidas; concorrência; reverter; bloqueio do login;
-  formato de pedidos da Vercel.
+  formato de pedidos da Vercel; API de dados: chaves (criar, usar, revogar), erros, e as 15 tabelas de Set/Out/Nov iguais célula a célula aos CSV originais (JSON, CSV e sem compressão), páginas abaixo de 3 MB, arquivo de versões antigas.

@@ -57,7 +57,8 @@ export default function Carregamentos({ menu }) {
                     <td className="dir">{t ? t.visitas.toLocaleString('pt-PT') : '—'}</td>
                     <td className="dir" onClick={(e) => e.stopPropagation()}>
                       {c.estado === 'validado' && <button type="button" className="btn btn-pequeno" disabled={ocupado === c.id} onClick={() => acao(c, 'publicar')}>Publicar</button>}
-                      {c.estado === 'substituido' && <button type="button" className="btn btn-pequeno" disabled={ocupado === c.id} onClick={() => acao(c, 'reverter')}>Voltar a esta versão</button>}
+                      {c.estado === 'substituido' && c.dados_arquivados && <small>arquivada</small>}
+                      {c.estado === 'substituido' && !c.dados_arquivados && <button type="button" className="btn btn-pequeno" disabled={ocupado === c.id} onClick={() => acao(c, 'reverter')}>Voltar a esta versão</button>}
                       {['a_receber', 'validado', 'falhado'].includes(c.estado) && <button type="button" className="btn-link" disabled={ocupado === c.id} onClick={() => acao(c, 'cancelar')}>Cancelar</button>}
                     </td>
                   </tr>,
