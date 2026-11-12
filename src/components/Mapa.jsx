@@ -122,10 +122,13 @@ export default function Mapa({ geo, provincias, lojas, selecionada, onSelect, pr
   return (
     <div className="mapa">
       <MapContainer bounds={MZ_BOUNDS} preferCanvas zoomSnap={0.25} minZoom={4} maxZoom={19} className="mapa-leaflet">
+        {/* Política de tiles do OSM: cada pedido tem de levar o cabeçalho Referer (sem ele o servidor devolve
+            "Access blocked"). referrerPolicy nas imagens garante-o mesmo que a página tenha uma política restritiva. */}
         <TileLayer
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | Limites: OCHA COD-AB (CC BY-IGO)'
+          referrerPolicy="strict-origin-when-cross-origin"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> | Limites: OCHA COD-AB (CC BY-IGO)'
         />
         <GeoJSON
           key={`${provSel}|${perto}|${provincias.map((p) => p.visitadas).join(',')}`}
